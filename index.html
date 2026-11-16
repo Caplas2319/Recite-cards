@@ -40,6 +40,10 @@ textarea{width:100%;min-height:150px;font:inherit;color:inherit;background:var(-
 .cr{display:flex;gap:10px;align-items:center;padding:4px 8px;border:1px solid var(--bd);border-radius:8px;margin:4px 0;background:var(--card)}
 .cr.dg{opacity:.6}.hd{touch-action:none;cursor:grab;padding:4px 10px;font-size:20px}
 [hidden]{display:none!important}
+img.pic,.bx img,.qt img,.ans img,.ol img{max-width:100%;height:auto;vertical-align:middle;border-radius:4px}
+.bx img{max-height:60vh}
+mark{background:rgba(255,214,0,.55);color:inherit;border-radius:3px}
+#sq,#sc{font:inherit;color:inherit;background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:8px;min-height:42px}#sq{flex:1;min-width:120px}
 .pop{position:fixed;z-index:20;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:8px;box-shadow:0 6px 24px rgba(0,0,0,.25);max-height:70vh;overflow:auto;max-width:calc(100vw - 16px)}
 #pal{display:grid;grid-template-columns:repeat(3,auto);gap:6px}
 .ph{display:flex;align-items:center;gap:8px;margin-bottom:4px}
@@ -78,13 +82,15 @@ body.mqm #list{cursor:crosshair;user-select:none}
 <textarea id="ta" placeholder="粘贴提纲，每行一条。带缩进或 - 的会保留层级"></textarea>
 <div class="bar"><button id="add" class="p">开始编辑</button></div></details>
 <div class="stk" id="sk"><div class="bar" id="tb"></div><div id="ban" class="ban" hidden></div></div>
-<div class="meta">回车 = 框内换行；Ctrl+Enter = 分点编号；Tab / 「框选」按钮 = 开关框选模式；按住方框拖动 = 连续勾选；涂色：先选样式，再选字点「涂色」</div>
+<div class="meta">回车 = 框内换行；Ctrl+Enter = 分点编号；Tab / 「框选」按钮 = 开关框选模式；按住方框拖动 = 连续勾选；涂色：点「涂色」选样式后，选中文字即涂（同样式再涂一次取消）；先选字再点「涂色」＝只涂这一次；图片：点「图片」或直接粘贴，插入时选择是否压缩</div>
 <div class="bar"><button id="plus0">＋ 开头加一行</button></div>
 <div id="list"></div>
 <div class="bar"><button id="plus">＋ 末尾加一行</button><button id="cv" class="p">转换为卡片</button></div>
 <div id="mqb" hidden>框选模式：开 · 再按 Tab 或点「框选」关闭</div>
 </section>
+<input type="file" id="imf" accept="image/*" hidden>
 <section id="v2" hidden>
+<div class="stk"><div class="bar" id="sb"><input id="sq" placeholder="搜索题目和答案"><select id="sc" title="搜索范围"></select><button id="sg" title="搜索并跳转">🔍</button><span class="meta" id="sn"></span></div></div>
 <div class="meta">范围（点选章节）</div>
 <div class="bar" id="chips"></div>
 <label><input type="checkbox" id="wo"> 只刷错题</label>
@@ -99,24 +105,64 @@ const $=s=>document.querySelector(s),el=(t,c)=>{const e=document.createElement(t
 const uid=()=>Math.random().toString(36).slice(2,9);
 const esc=s=>s.replace(/[&<>]/g,m=>'&#'+m.charCodeAt(0)+';');
 const plain=h=>{const d=el('div');d.innerHTML=h||'';return d.textContent};
-let R,S,hist=[],ss=new Set(),mq=null,mqm=false,ban=false,bi=-1,sel=new Set(),foc=null,want=null,fh=null,tm,deck=null,pos=0,drag=null,lastBox=null,lastR=null;
+let fm=null,sf=null,jump=null,hlId=null,hlQ='',hlEx=false,sr=null,R,S,hist=[],ss=new Set(),mq=null,mqm=false,ban=false,bi=-1,sel=new Set(),foc=null,want=null,fh=null,tm,deck=null,pos=0,drag=null,lastBox=null,lastR=null;
 function nl(t){return{id:uid(),title:t||'',items:[],cfg:{off:[],wo:0}}}
 function norm(d){if(d&&!d.libs&&d.items)d={libs:[Object.assign({id:uid()},d)]};d=d||{};d.libs=d.libs||[];if(!d.libs.length)d.libs.push(nl());
-d.libs.forEach(l=>{l.id=l.id||uid();l.items=l.items||[];l.cfg=l.cfg||{};l.cfg.off=l.cfg.off||[]});if(!d.libs.some(l=>l.id===d.cur))d.cur=d.libs[0].id;return d}
+d.folders=d.folders||[];d.folders.forEach(f=>{f.id=f.id||uid();f.name=f.name||'未命名文件夹'});
+d.libs.forEach(l=>{l.id=l.id||uid();l.items=l.items||[];l.cfg=l.cfg||{};l.cfg.off=l.cfg.off||[];if(l.f&&!d.folders.some(f=>f.id===l.f))delete l.f});if(!d.libs.some(l=>l.id===d.cur))d.cur=d.libs[0].id;return d}
 function use(id){R.cur=id;S=R.libs.find(l=>l.id===id)}
+const FD=id=>id&&R.folders.find(f=>f.id===id),isFm=()=>!!FD(fm),sLibs=()=>isFm()?R.libs.filter(l=>l.f===fm):[S],WO=()=>isFm()?!!FD(fm).wo:!!S.cfg.wo;
 try{R=JSON.parse(localStorage.getItem('rc2'))||JSON.parse(localStorage.getItem('rc'))}catch(e){}
 R=norm(R);use(R.cur);
 const st=m=>$('#st').textContent=m;
-function save(){try{localStorage.setItem('rc2',JSON.stringify(R))}catch(e){}if(fh){clearTimeout(tm);tm=setTimeout(wr,500)}}
-async function wr(){try{const w=await fh.createWritable();await w.write(JSON.stringify(R));await w.close();st('已保存到 '+fh.name)}catch(e){st('文件保存失败，仅浏览器暂存')}}
-const paintT=()=>{const t=$('#ttl');t.textContent=S.title||'＋ 题库名';t.title='点击修改题库名'};
+let dirty=0;
+const tnow=()=>new Date().toLocaleTimeString('zh-CN',{hour12:false});
+function save(){dirty=1;clearTimeout(tm);tm=setTimeout(flush,600)}
+function flush(){if(!dirty)return;dirty=0;clearTimeout(tm);const js=JSON.stringify(R);try{localStorage.setItem('rc2',js)}catch(e){}gc(js);if(fh)wr();else st('仅浏览器暂存 '+tnow())}
+addEventListener('pagehide',flush);document.addEventListener('visibilitychange',()=>{if(document.hidden)flush()});
+/* ---- images: text keeps <img data-i="id">; pixels live in IM (IndexedDB 'rc-img'); the archive file bundles the used ones ---- */
+const IM={};
+const refs=z=>{const o=new Set,r=/data-i=\\"(\w+)/g;let m;while(m=r.exec(z))o.add(m[1]);return o};
+const idbI=()=>new Promise((ok,no)=>{const q=indexedDB.open('rc-img',1);q.onupgradeneeded=()=>q.result.createObjectStore('i');q.onerror=()=>no();q.onsuccess=()=>ok(q.result)});
+const iput=async(k,u)=>{try{(await idbI()).transaction('i','readwrite').objectStore('i').put(u,k)}catch(e){}};
+const idel=async k=>{try{(await idbI()).transaction('i','readwrite').objectStore('i').delete(k)}catch(e){}};
+const iload=async()=>{const d=await idbI();return new Promise(ok=>{const o={},c=d.transaction('i').objectStore('i').openCursor();c.onsuccess=()=>{const k=c.result;if(k){o[k.key]=k.value;k.continue()}else ok(o)};c.onerror=()=>ok(o)})};
+function gc(js){const u=refs(js);hist.forEach(h=>refs(h).forEach(k=>u.add(k)));Object.keys(IM).forEach(k=>{if(!u.has(k)){delete IM[k];idel(k)}})}
+function pack(){const js=JSON.stringify(R),o={};let n=0;refs(js).forEach(k=>{if(IM[k]){o[k]=IM[k];n++}});return n?js.slice(0,-1)+',"imgs":'+JSON.stringify(o)+'}':js}
+function hyd(root){root.querySelectorAll('img[data-i]').forEach(i=>{const u=IM[i.dataset.i];if(u){if(i.getAttribute('src')!==u)i.src=u}else i.alt='（图片未找到）'})}
+const kb=n=>n>=1048576?(n/1048576).toFixed(1)+' MB':Math.max(1,Math.round(n/1024))+' KB';
+const rd=b=>new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=no;r.readAsDataURL(b)});
+async function zip(f){const bm=await createImageBitmap(f),k=Math.min(1,1000/Math.max(bm.width,bm.height)),w=Math.max(1,Math.round(bm.width*k)),h=Math.max(1,Math.round(bm.height*k)),c=document.createElement('canvas');
+c.width=w;c.height=h;const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,w,h);g.drawImage(bm,0,0,w,h);
+const b=await new Promise(ok=>c.toBlob(ok,'image/jpeg',.7));const o={url:await rd(b),size:b.size,w,h,ow:bm.width,oh:bm.height};if(bm.close)bm.close();return o}
+let imgTg=null;
+function imgTarget(){let bx=lastBox&&lastBox.isConnected?lastBox:null;if(!bx&&foc)bx=document.querySelector('.bx[data-id="'+foc+'"]');if(!bx)return null;
+let r=lastBox===bx&&lastR?lastR.cloneRange():null;if(!r){r=document.createRange();r.selectNodeContents(bx);r.collapse(false)}return{bx,r}}
+function imgPick(){const t=imgTarget();if(!t){alert('先点一下要插入图片的框');return}imgTg=t;const i=$('#imf');i.value='';i.click()}
+$('#imf').onchange=e=>{const f=e.target.files[0];if(f&&imgTg)askImg(f,imgTg)};
+function putImg(url,tg){const bx=tg.bx;if(!bx.isConnected){alert('这个框已经不在了，请重新插入');return}
+const id=uid();IM[id]=url;iput(id,url);let r=tg.r;if(!r||!bx.contains(r.startContainer)){r=document.createRange();r.selectNodeContents(bx);r.collapse(false)}
+snap();const im=el('img');im.dataset.i=id;im.src=url;r.collapse(false);r.insertNode(im);bx._x.t=get(bx);save();deck=null;
+const g=getSelection(),nr=document.createRange();nr.setStartAfter(im);nr.collapse(true);bx.focus();g.removeAllRanges();g.addRange(nr)}
+async function askImg(f,tg){if(!tg||!tg.bx){alert('先点一下要插入图片的框');return}
+let z,orig;try{[z,orig]=await Promise.all([zip(f),rd(f)])}catch(e){alert('这张图片读取失败（可能是浏览器不支持的格式）');return}
+const P=$('#rp');closeP();P.style.top='';P.style.left='';
+P.innerHTML='<div class="ph"><b>插入图片</b><span class="sp"></span><button id="rx" title="取消">✕</button></div><div class="cb2"><img class="pic" id="pv" style="max-height:34vh;object-fit:contain;align-self:center"><div class="meta" id="pm"></div><button id="iz">压缩后插入</button><button id="io">保持原图插入</button></div>';
+$('#pv').src=z.url;
+$('#pm').textContent='原图 '+kb(f.size)+'（'+z.ow+'×'+z.oh+'）→ 压缩后 '+kb(z.size)+'（'+z.w+'×'+z.h+'，长边≤1000px，JPEG 质量 0.7）';
+(z.size<=f.size?$('#iz'):$('#io')).className='p';
+$('#rx').onclick=closeP;$('#iz').onclick=()=>{closeP();putImg(z.url,tg)};$('#io').onclick=()=>{closeP();putImg(orig,tg)};P.hidden=false}
+iload().then(o=>{if(Object.keys(o).length){Object.assign(IM,o);refresh()}}).catch(()=>{});
+async function wr(){try{const w=await fh.createWritable();await w.write(pack());await w.close();st('已保存 '+tnow())}catch(e){st('文件保存失败，仅浏览器暂存')}}
+const fmView=()=>isFm()&&!$('#v2').hidden;
+const paintT=()=>{const t=$('#ttl');if(fmView()){t.textContent='📁 '+FD(fm).name;t.title='';return}t.textContent=S.title||'＋ 题库名';t.title='点击修改题库名'};
 const refresh=()=>{paintT();drawBan();!$('#v3').hidden?drawShelf():$('#v1').hidden?draw2():draw()};
 const snap=()=>{hist.push(JSON.stringify([S.items,S.title]));if(hist.length>40)hist.shift()};
 function mut(f){snap();f();save();deck=null;refresh()}
 const tg=()=>{const a=S.items.filter(x=>sel.has(x.id)&&x.r!=='s');return a.length?a:S.items.filter(x=>x.id===foc&&x.r!=='s')};
 const NUM='(?:[①-⑳⑴-⒇❶-❿]|[（(][\\d一二三四五六七八九十]{1,3}[)）]|[（(]\\d{1,2}(?=\\s)|\\d{1,3}\\s*(?:[、)）]|[.．](?!\\d))|第[一二三四五六七八九十\\d]+[点条项]\\s*[、.．:：]?|[一二三四五六七八九十]+\\s*[、.．]|[a-zA-Z][.、)）](?![a-zA-Z.]))';
 const RXH=new RegExp('^((?:<span[^>]*>)*)\\s*'+NUM+'\\s*');
-const blank=h=>!h.replace(/<[^>]*>/g,'').trim();
+const blank=h=>!h.replace(/<(?!img\b)[^>]*>/g,'').trim();
 function lns(t,keep){const L=[];let cur='',op=[];(t||'').split(/(<span style="[^"]*">|<\/span>|\n)/).forEach(p=>{
 if(p==='\n'){L.push(cur+'</span>'.repeat(op.length));cur=op.join('')}
 else{if(p.startsWith('<span'))op.push(p);else if(p==='</span>')op.pop();cur+=p}});
@@ -130,20 +176,21 @@ out:()=>tg().forEach(x=>x.d=Math.max(0,x.d-1)),
 inn:()=>tg().forEach(x=>x.d++),
 ch:()=>{tg().forEach(x=>{x.r='c';x.d=0});sel.clear()},
 q:()=>{tg().forEach(x=>{x.r='q';x.d=1});sel.clear()},
-a:()=>{tg().forEach(x=>{x.r='a';x.d=2});sel.clear()},
+a:()=>{tg().forEach(x=>{x.r='a';x.d=2;x.t=pointify(x.t)});sel.clear()},
 num:()=>tg().forEach(x=>x.t=lns(x.t,1).map(strip).join('\n')),
 split:()=>tg().filter(x=>!isR(x)).forEach(x=>x.t=pointify(x.t)),
-splitAll:()=>S.items.filter(x=>!isR(x)).forEach(x=>x.t=pointify(x.t)),
 merge:()=>{const a=tg();if(a.length<2)return;a[0].t=a.map(x=>x.t).join('\n');const s=new Set(a.slice(1).map(x=>x.id));S.items=S.items.filter(x=>!s.has(x.id));sel.clear()},
 name:()=>{tg().forEach(x=>{x.r='n';x.d=0});sel.clear()},
 cut:()=>{const a=tg();if(!a.length)return;const k=a.length>1?S.items.indexOf(a[1]):S.items.indexOf(a[0])+1;S.items.splice(k,0,{id:uid(),t:'',d:0,r:'s'});sel.clear()},
-nr:()=>{const a=tg(),x=a[a.length-1],n={id:uid(),t:'',d:x?x.d:0,r:''};want=n.id;S.items.splice(x?S.items.indexOf(x)+1:S.items.length,0,n);sel.clear()},
+nr:()=>{if(hasSel()){const bx=lastBox,x=bx._x,r=lastR,d=el('div');d.append(r.cloneContents());const t=ser(d).replace(/^\n+|\n+$/g,'');
+r.deleteContents();x.t=get(bx);const n={id:uid(),t,d:x.d,r:''};want=n.id;S.items.splice(S.items.indexOf(x)+1,0,n);sel.clear();lastR=null;return}
+const a=tg(),x=a[a.length-1],n={id:uid(),t:'',d:x?x.d:0,r:''};want=n.id;S.items.splice(x?S.items.indexOf(x)+1:S.items.length,0,n);sel.clear()},
 del:()=>{const s=new Set(tg().map(x=>x.id));S.items=S.items.filter(x=>!s.has(x.id));sel.clear()}};
 /* toolbar */
-const BN={all:'全选',none:'取消',out:'←',inn:'→',ch:'章节',q:'题目',a:'答案',num:'去序号',split:'分点',splitAll:'全部分点',merge:'合并',name:'题库名',cut:'切分',pen:'涂色',nr:'新框',rep:'替换',mqs:'框选',del:'删除',undo:'撤销'};
+const BN={all:'全选',none:'取消',out:'←',inn:'→',ch:'章节',q:'题目',a:'答案',num:'去序号',split:'分点',merge:'合并',name:'库',cut:'切分',pen:'涂色',nr:'新框',img:'图片',rep:'替换',mqs:'框选',del:'删除',undo:'撤销'};
 const order=()=>{const k=Object.keys(BN),o=(S.cfg.ord||[]).filter(x=>k.includes(x));k.forEach(x=>o.includes(x)||o.push(x));return o};
 function tbar(){const T=$('#tb');T.innerHTML='';
-order().forEach(k=>{if((S.cfg.hide||[]).includes(k))return;const b=el('button');b.dataset.a=k;b.textContent=BN[k];if(k==='pen'&&cp!=null){const p=PL[cp];b.style.borderBottom='4px solid '+(p[0]==='x'?'var(--mut)':p[1])}if(k==='mqs'&&mqm)b.className='p';T.append(b)});
+order().forEach(k=>{if((S.cfg.hide||[]).includes(k))return;const b=el('button');b.dataset.a=k;b.textContent=BN[k];if(k==='pen'&&cp!=null){const p=PL[cp];b.style.borderBottom='4px solid '+(p[0]==='x'?'var(--mut)':p[1])}if((k==='mqs'&&mqm)||(k==='pen'&&cp!=null))b.className='p';T.append(b)});
 const c=el('button');c.dataset.a='cus';c.textContent='自定义';T.append(c)}
 $('#sk').onmousedown=e=>e.preventDefault();
 $('#tb').onclick=e=>{const a=e.target.dataset.a;if(!a)return;if(!/^(pen|cus|rep)$/.test(a))closeP();
@@ -151,6 +198,7 @@ if(a==='all'){S.items.forEach(x=>sel.add(x.id));draw()}
 else if(a==='none'){sel.clear();draw()}
 else if(a==='undo'){if(hist.length){const h=JSON.parse(hist.pop());S.items=h[0];S.title=h[1];save();deck=null;refresh()}}
 else if(a==='pen')pen();
+else if(a==='img')imgPick();
 else if(a==='rep')repWin();
 else if(a==='mqs')mqMode();
 else if(a==='cus')cus(e.target);
@@ -174,39 +222,60 @@ const PL=[['h','rgba(255,214,0,.45)','黄'],['h','rgba(46,204,113,.4)','绿'],['
 let cp=null;
 PL.forEach((p,i)=>{const b=el('button');b.dataset.i=i;b.textContent=p[2];
 if(p[0]==='h')b.style.background=p[1];if(p[0]==='f'){b.style.color=p[1];b.style.fontWeight=600}$('#pal').append(b)});
+{const b=el('button');b.dataset.i='off';b.textContent='退出涂色';b.hidden=true;$('#pal').append(b)}
 const hasSel=()=>lastR&&!lastR.collapsed&&lastBox&&lastBox.isConnected;
-function pen(){if(!hasSel()){popup($('#pal'),$('#tb [data-a=pen]'));return}if(cp!=null)paint(cp)}
-function paint(i){const p=PL[i],bx=lastBox;snap();bx.focus();const s=getSelection();s.removeAllRanges();s.addRange(lastR);
+const bgOk=v=>!!v&&v!=='transparent'&&!/^rgba\(.*,\s*0\)$/.test(v);
+const cn=(prop,v)=>{const t=el('span');t.style[prop]=v;return t.style[prop]};
+function eff(e,prop,bx){if(prop==='color')return getComputedStyle(e).color;for(;e&&e!==bx;e=e.parentElement){const v=getComputedStyle(e).backgroundColor;if(bgOk(v))return v}return ''}
+function allHas(r,prop,want,bx){const ca=r.commonAncestorContainer,ns=[];if(ca.nodeType===3)ns.push(ca);else{const w=document.createTreeWalker(ca,NodeFilter.SHOW_TEXT);while(w.nextNode())ns.push(w.currentNode)}
+let any=false;for(const t of ns){if(!r.intersectsNode(t))continue;const a=t===r.startContainer?r.startOffset:0,b=t===r.endContainer?r.endOffset:t.data.length;
+if(!t.data.slice(a,b).trim())continue;any=true;if(eff(t.parentElement,prop,bx)!==want)return false}return any}
+function pen(){$('#pal [data-i=off]').hidden=cp==null;popup($('#pal'),$('#tb [data-a=pen]'))}
+function paint(i){const p=PL[i],bx=lastBox,r=lastR;snap();bx.focus();const s=getSelection();s.removeAllRanges();s.addRange(r);
 document.execCommand('styleWithCSS',false,true);
-p[0]==='x'?document.execCommand('removeFormat'):document.execCommand(p[0]==='h'?'hiliteColor':'foreColor',false,p[1]);
+if(p[0]==='x')document.execCommand('removeFormat');
+else{const prop=p[0]==='h'?'backgroundColor':'color',on=allHas(r,prop,cn(prop,p[1]),bx);
+if(p[0]==='h')document.execCommand('hiliteColor',false,on?'transparent':p[1]);else document.execCommand('foreColor',false,on?getComputedStyle(bx).color:p[1])}
 bx._x.t=get(bx);save();deck=null;s.collapseToEnd();lastR=null}
 $('#pal').onmousedown=e=>e.preventDefault();
-$('#pal').onclick=e=>{const i=e.target.dataset.i;if(i==null)return;cp=+i;closeP();tbar();if(hasSel())paint(cp)};
+$('#pal').onclick=e=>{const i=e.target.dataset.i;if(i==null)return;closeP();
+if(i==='off'){cp=null;tbar();st('已退出涂色笔');return}
+if(hasSel()){paint(+i);cp=null;tbar();return}
+cp=+i;tbar();st('涂色笔：'+PL[cp][2]+'　选中文字即涂色，同样式再涂一次取消')};
+let bt,md=false;
+function brushGo(){clearTimeout(bt);if(cp!=null&&hasSel())paint(cp)}
+document.addEventListener('mousedown',()=>{md=true});
+document.addEventListener('mouseup',()=>{md=false;if(cp!=null)setTimeout(brushGo,0)});
 document.addEventListener('selectionchange',()=>{const s=getSelection();let bx=null,r=null;if(s.rangeCount){r=s.getRangeAt(0);const n=r.commonAncestorContainer,b=n.nodeType===1?n:n.parentElement;bx=b&&b.closest('.bx')}
-if(bx){lastBox=bx;lastR=r.cloneRange()}else{lastBox=lastR=null}});
+if(bx){lastBox=bx;lastR=r.cloneRange()}else{lastBox=lastR=null}
+if(cp!=null&&!md){clearTimeout(bt);bt=setTimeout(brushGo,450)}});
 function ser(n){let s='';n.childNodes.forEach(c=>{
 if(c.nodeType===3)s+=esc(c.data);
 else if(c.nodeName==='BR')s+='\n';
+else if(c.nodeName==='IMG'){if(c.dataset.i)s+='<img data-i="'+c.dataset.i+'">'}
 else{const i=ser(c);if(/^(DIV|P)$/.test(c.nodeName)){if(s&&!s.endsWith('\n'))s+='\n';s+=i}
-else{const o=c.style,k=(o.color?'color:'+o.color+';':'')+(o.backgroundColor?'background-color:'+o.backgroundColor+';':'');s+=k?'<span style="'+k+'">'+i+'</span>':i}}});return s}
-const get=b=>ser(b).replace(/\n$/,'');
+else{const o=c.style,k=(o.color&&o.color!==BC?'color:'+o.color+';':'')+(bgOk(o.backgroundColor)?'background-color:'+o.backgroundColor+';':'');s+=k?'<span style="'+k+'">'+i+'</span>':i}}});return s}
+let BC='';
+const get=b=>{BC=b.isConnected?getComputedStyle(b).color:'';return ser(b).replace(/\n$/,'')};
 /* editor */
 function draw(){const L=$('#list');L.innerHTML='';
 S.items.forEach((x,i)=>{
 const r=el('div','row'+(sel.has(x.id)?' sel':''));r.style.paddingLeft=x.d*22+'px';
 const c=el('input');c.type='checkbox';c.checked=sel.has(x.id);
 c.onchange=()=>{c.checked?sel.add(x.id):sel.delete(x.id);r.classList.toggle('sel',c.checked)};
-const g=el('span','tag '+(x.r||'e'));g.textContent={c:'章',q:'题',a:'答',n:'库名',s:'切'}[x.r]||'答';r.append(g,c);
+const g=el('span','tag '+(x.r||'e'));g.textContent={c:'章',q:'题',a:'答',n:'库',s:'切'}[x.r]||'答';r.append(g,c);
 c.onmousedown=e=>dragStart(e,i);c.onclick=e=>{if(e.detail)e.preventDefault()};
 if(x.r==='s'){const m=el('div','cut');m.textContent='—— 切分标记：转换时从这里拆成新题库 ——';const k=el('button');k.textContent='✕';k.onclick=()=>mut(()=>S.items.splice(i,1));r.append(m,k);L.append(r);return}
-const t=el('div','bx');t.contentEditable='true';t.innerHTML=x.t||'';t._x=x;t.dataset.id=x.id;
+const t=el('div','bx');t.contentEditable='true';t.innerHTML=x.t||'';hyd(t);t._x=x;t.dataset.id=x.id;
 t.oninput=()=>{x.t=get(t);save();deck=null};
 t.onfocus=()=>foc=x.id;
-t.onpaste=e=>{e.preventDefault();document.execCommand('insertText',false,e.clipboardData.getData('text/plain'))};
+t.onpaste=e=>{e.preventDefault();const f=[...(e.clipboardData.files||[])].find(z=>/^image\//.test(z.type));
+if(f){const g=getSelection();askImg(f,{bx:t,r:g.rangeCount?g.getRangeAt(0).cloneRange():null});return}
+document.execCommand('insertText',false,e.clipboardData.getData('text/plain'))};
 t.onkeydown=e=>{
 if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();want=x.id;mut(()=>{if(!isR(x))x.t=pointify(x.t)})}
 else if(e.key==='Enter'){e.preventDefault();document.execCommand('insertLineBreak')}
-else if(e.key==='Backspace'&&!t.textContent){e.preventDefault();const p=S.items[i-1];want=p&&p.id;mut(()=>S.items.splice(i,1))}};
+else if(e.key==='Backspace'&&!t.textContent&&!t.querySelector('img')){e.preventDefault();const p=S.items[i-1];want=p&&p.id;mut(()=>S.items.splice(i,1))}};
 r.append(t);L.append(r)});
 if(want){const f=L.querySelector('[data-id="'+want+'"]');want=null;if(f){f.focus();const r=document.createRange();r.selectNodeContents(f);r.collapse(false);const s=getSelection();s.removeAllRanges();s.addRange(r)}}}
 /* drag-select checkboxes */
@@ -242,8 +311,8 @@ const P=[[]];S.items.forEach(x=>x.r==='s'?P.push([]):P[P.length-1].push(x));
 const ps=P.filter(p=>p.length).map(p=>({nm:p.filter(x=>x.r==='n').map(x=>plain(x.t).replace(/\s+/g,' ').trim()).filter(Boolean).join(' '),it:p.filter(x=>x.r!=='n')})).filter(p=>p.it.length);
 if(ps.length>1&&!confirm('将拆分为 '+ps.length+' 个题库：\n'+ps.map((p,i)=>(i+1)+'. '+(p.nm||'（无题库名）')+'（'+p.it.filter(x=>x.r==='q').length+' 题）').join('\n')+'\n题库名框和切分标记会被删除，确定？'))return;
 const base=S.title||'未命名题库',cur=R.libs.indexOf(S);
-ps.forEach((p,k)=>{if(k===0){S.items=p.it;if(p.nm)S.title=p.nm}else{const l=nl(p.nm||base+'（'+(k+1)+'）');l.items=p.it;R.libs.splice(cur+k,0,l)}});
-ban=false;bi=-1;hist=[];sel.clear();deck=null;save();ps.length>1?tab(3):tab(2);st(ps.length>1?'已拆分为 '+ps.length+' 个题库':'已转换')};
+ps.forEach((p,k)=>{if(k===0){S.items=p.it;if(p.nm)S.title=p.nm}else{const l=nl(p.nm||base+'（'+(k+1)+'）');l.items=p.it;if(S.f)l.f=S.f;R.libs.splice(cur+k,0,l)}});
+ban=false;bi=-1;hist=[];sel.clear();deck=null;fm=null;save();ps.length>1?(sf=S.f||null,tab(3)):tab(2);st(ps.length>1?'已拆分为 '+ps.length+' 个题库':'已转换')};
 function rep1(t,a,b,dry){const d=el('div');d.innerHTML=t||'';const w=document.createTreeWalker(d,NodeFilter.SHOW_TEXT),ns=[];while(w.nextNode())ns.push(w.currentNode);let n=0;
 ns.forEach(x=>{const p=x.data.split(a);if(p.length>1){n+=p.length-1;if(!dry)x.data=p.join(b)}});return[n&&!dry?get(d):t,n]}
 function repWin(){const P=$('#rp');if(!P.hidden){closeP();return}closeP();const only=sel.size>0;
@@ -268,60 +337,106 @@ let k=0,p=n.parentElement;while(p){if(p.tagName==='LI')k++;p=p.parentElement}o.p
 $('#ta').value=o.join('\n');$('#imp').open=true;st('已读取 '+f.name+'，确认后点「开始编辑」')}catch(x){alert('读取失败：'+x.message)}};
 /* cards */
 const shuf=a=>{for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a};
-function qs(){let ch='（未分章）';const o=[];S.items.forEach((x,i)=>{if(x.r==='c')ch=plain(x.t)||'（空章节）';else if(x.r==='q')o.push({x,i,ch})});return o}
-function tree(i){const d=S.items[i].d,root={k:[]},sk=[[d,root]];
-for(let j=i+1;j<S.items.length&&S.items[j].d>d&&!isR(S.items[j]);j++){const y=S.items[j],n={t:y.t,k:[]};
+function qs(Ls){const o=[];Ls.forEach(L=>{let ch='（未分章）';L.items.forEach((x,i)=>{if(x.r==='c')ch=plain(x.t)||'（空章节）';else if(x.r==='q')o.push({x,i,ch,L})})});return o}
+function tree(L,i){const d=L.items[i].d,root={k:[]},sk=[[d,root]];
+for(let j=i+1;j<L.items.length&&L.items[j].d>d&&!isR(L.items[j]);j++){const y=L.items[j],n={t:y.t,k:[]};
 while(sk[sk.length-1][0]>=y.d)sk.pop();sk[sk.length-1][1].k.push(n);sk.push([y.d,n])}
 return root.k}
-const pts=l=>{const o=[];l.forEach(n=>{const a=lns(n.t).map(strip).filter(x=>!blank(x));if(a.length<2){o.push({t:a[0]||'',k:n.k});return}a.forEach((t,i)=>o.push({t,k:i==a.length-1?n.k:[]}))});return o};
+const pts=l=>{const o=[];l.forEach(n=>{const g=[];lns(n.t).forEach(x=>{if(!g.length||RXH.test(x))g.push(x);else g[g.length-1]+='\n'+x});
+if(!g.length){o.push({t:'',k:n.k});return}g.forEach((t,i)=>o.push({t:strip(t),k:i==g.length-1?n.k:[]}))});return o};
 function nodes(list,P){pts(list).forEach((n,i)=>{const w=el('div','nd'),b=el('div','ans mask'),s=el('div','sub');
 b.innerHTML='<b>'+(i+1)+'</b><span>点击显示</span>';
-b.open=()=>{if(!b.classList.contains('mask'))return;b.classList.remove('mask');b.lastChild.innerHTML=n.t||'';nodes(n.k,s)};
+b.open=()=>{if(!b.classList.contains('mask'))return;b.classList.remove('mask');b.lastChild.innerHTML=n.t||'';hyd(b.lastChild);nodes(n.k,s)};
 b.onclick=b.open;w.append(b,s);P.append(w)})}
-function draw2(){const m=new Map(),all=qs();all.forEach(q=>m.set(q.ch,(m.get(q.ch)||0)+1));
+const LN=L=>L.title||'未命名题库';
+function mark(root,k){const kl=k.toLowerCase(),w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),ns=[];while(w.nextNode())ns.push(w.currentNode);
+ns.forEach(t=>{if(t.parentElement.closest('b,button'))return;const s=t.data,sl=s.toLowerCase();let i=sl.indexOf(kl);if(i<0)return;const f=document.createDocumentFragment();let p=0;
+while(i>=0){f.append(s.slice(p,i));const m=el('mark');m.textContent=s.slice(i,i+k.length);f.append(m);p=i+k.length;i=sl.indexOf(kl,p)}f.append(s.slice(p));t.replaceWith(f)})}
+function scopeOpts(){const sc=$('#sc'),old=sc.value,f=isFm()?FD(fm):FD(S.f);sc.innerHTML='';
+const add=(v,n)=>{const o=el('option');o.value=v;o.textContent=n;sc.append(o)};
+if(isFm())add('f','本文件夹：'+f.name);else{add('l','本题库');if(f)add('f','文件夹：'+f.name)}
+if([...sc.options].some(o=>o.value===old))sc.value=old;sc.disabled=sc.options.length<2}
+function draw2(){const Ls=sLibs(),multi=isFm(),all=qs(Ls),m=new Map();scopeOpts();
+all.forEach(q=>{const k=q.L.id+'\u0001'+q.ch,e=m.get(k)||{L:q.L,ch:q.ch,n:0};e.n++;m.set(k,e)});
 const C=$('#chips');C.innerHTML='';
-m.forEach((n,k)=>{const b=el('button','chip'+(S.cfg.off.includes(k)?'':' on'));b.textContent=k+'（'+n+'）';
-b.onclick=()=>{const o=S.cfg.off,j=o.indexOf(k);j<0?o.push(k):o.splice(j,1);save();deck=null;draw2()};C.append(b)});
-$('#wo').checked=!!S.cfg.wo;
-if(!deck){deck=shuf(all.filter(q=>!S.cfg.off.includes(q.ch)&&(!S.cfg.wo||q.x.w)).map(q=>q.x.id));pos=0}
+m.forEach(e=>{const off=e.L.cfg.off,b=el('button','chip'+(off.includes(e.ch)?'':' on'));b.textContent=(multi?LN(e.L)+' · ':'')+e.ch+'（'+e.n+'）';
+b.onclick=()=>{const j=off.indexOf(e.ch);j<0?off.push(e.ch):off.splice(j,1);save();deck=null;draw2()};C.append(b)});
+$('#wo').checked=WO();
+if(!deck){deck=shuf(all.filter(q=>!q.L.cfg.off.includes(q.ch)&&(!WO()||q.x.w)).map(q=>q.x.id));pos=0}
+if(jump){const j=deck.indexOf(jump);if(j>=0)pos=j;else{const e=deck.length;deck.splice(e?pos+1:0,0,jump);pos=e?pos+1:0}hlId=jump;jump=null}
 const B=$('#card');B.innerHTML='';
-if(!deck.length){B.innerHTML='<p class="meta">'+(S.cfg.wo?'范围内没有错题。':'范围内没有题目：到「整理」里把行设为题目。')+'</p>';return}
+if(!deck.length){B.innerHTML='<p class="meta">'+(WO()?'范围内没有错题。':'范围内没有题目：到「整理」里把行设为题目。')+'</p>';return}
 const q=all.find(q=>q.x.id===deck[pos]);if(!q){deck=null;return draw2()}
-const x=q.x,k=tree(q.i),h=el('div','card');
+const x=q.x,k=tree(q.L,q.i),h=el('div','card');
 h.innerHTML='<div class="meta"></div><div class="qt"></div><div class="meta"></div>';
-h.children[0].textContent=q.ch+'　第 '+(pos+1)+' / '+deck.length+' 题'+(x.w?'　错题':'');
-h.children[1].innerHTML=x.t||'';h.children[2].textContent=k.length?'共 '+pts(k).length+' 条':'这道题还没有答案条目';
+h.children[0].textContent=(multi?LN(q.L)+' · ':'')+q.ch+'　第 '+(pos+1)+' / '+deck.length+' 题'+(x.w?'　错题':'');
+h.children[1].innerHTML=x.t||'';hyd(h.children[1]);h.children[2].textContent=k.length?'共 '+pts(k).length+' 条':'这道题还没有答案条目';
 const A=el('div');nodes(k,A);h.append(A);B.append(h);
+if(hlId===x.id&&hlQ){if(hlEx){let z;while(z=h.querySelector('.mask'))z.open()}mark(h,hlQ)}
 const bar=el('div','bar');
 [['没记住',()=>{x.w=1;save();next()}],['记住',()=>{delete x.w;save();next()}],
-['全部展开',()=>{let m;while(m=h.querySelector('.mask'))m.open()}],['概览',ov],['跳过',next],
-['斩题',()=>{if(!confirm('删除这道题及其答案？'))return;mut(()=>{let c=1;while(S.items[q.i+c]&&S.items[q.i+c].d>x.d&&!isR(S.items[q.i+c]))c++;S.items.splice(q.i,c)})}]
+['全部展开',()=>{let m;while(m=h.querySelector('.mask'))m.open();if(hlId===x.id&&hlQ)mark(h,hlQ)}],['概览',ov],['跳过',next],
+['斩题',()=>{if(!confirm('删除这道题及其答案？'))return;const L=q.L,del=()=>{let c=1;while(L.items[q.i+c]&&L.items[q.i+c].d>x.d&&!isR(L.items[q.i+c]))c++;L.items.splice(q.i,c)};
+if(L===S)mut(del);else{del();save();deck=null;draw2()}}]
 ].forEach(([n,f],i)=>{const b=el('button',i<2?'p':'');b.textContent=n;b.onclick=f;bar.append(b)});
 B.append(bar)}
-function next(){pos++;if(pos>=deck.length)deck=null;draw2()}
-function ov(){const C=$('#ovc');C.innerHTML='<button id="cl">关闭</button>';let ch='（未分章）';
-S.items.forEach(x=>{if(x.r==='c')ch=plain(x.t)||'（空章节）';if(S.cfg.off.includes(ch))return;
+function next(){hlId=null;pos++;if(pos>=deck.length)deck=null;draw2()}
+function ov(){const C=$('#ovc');C.innerHTML='<button id="cl">关闭</button>';const Ls=sLibs();
+Ls.forEach(L=>{if(isFm()){const h=el('div','meta');h.textContent='【'+LN(L)+'】';C.append(h)}let ch='（未分章）';
+L.items.forEach(x=>{if(x.r==='c')ch=plain(x.t)||'（空章节）';if(L.cfg.off.includes(ch))return;
 const d=el('div','ol');d.style.paddingLeft=x.d*18+'px';
-if(x.r){const g=el('span','tag '+x.r);g.textContent={c:'章',q:'题',a:'答',n:'库名',s:'切'}[x.r]||'答';d.append(g,' ')}
-const s=el('span');s.innerHTML=x.t||'';d.append(s);C.append(d)});
+if(x.r){const g=el('span','tag '+x.r);g.textContent={c:'章',q:'题',a:'答',n:'库',s:'切'}[x.r]||'答';d.append(g,' ')}
+const s=el('span');s.innerHTML=x.t||'';hyd(s);d.append(s);C.append(d)})});
 $('#cl').onclick=()=>$('#ov').classList.remove('on');$('#ov').classList.add('on')}
+/* search */
+function sPool(){return $('#sc').value==='f'?R.libs.filter(l=>l.f&&l.f===(isFm()?fm:S.f)):[S]}
+function sFind(q,Ls){const k=q.toLowerCase(),o=[];Ls.forEach(L=>qs([L]).forEach(e=>{let a=false;
+for(let j=e.i+1;j<L.items.length&&L.items[j].d>e.x.d&&!isR(L.items[j]);j++)if(plain(L.items[j].t).toLowerCase().includes(k)){a=true;break}
+if(a||plain(e.x.t).toLowerCase().includes(k))o.push({id:e.x.id,L,a})}));return o}
+function sGo(){const q=$('#sq').value.trim(),n=$('#sn');if(!q){n.textContent='';sr=null;hlId=null;hlQ='';return}
+const key=q+'\u0001'+$('#sc').value+'\u0001'+(isFm()?fm:S.id);
+if(!sr||sr.key!==key)sr={key,list:sFind(q,sPool()),i:-1};
+if(!sr.list.length){n.textContent='没有找到';return}
+sr.i=(sr.i+1)%sr.list.length;const r=sr.list[sr.i];n.textContent=(sr.i+1)+' / '+sr.list.length;
+if(!isFm()&&r.L!==S){fm=S.f;deck=null}
+jump=r.id;hlQ=q;hlEx=r.a;draw2();scrollTo({top:0})}
+$('#sg').onclick=sGo;$('#sq').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();sGo()}};$('#sq').oninput=()=>{sr=null};
 $('#ov').onclick=e=>{if(e.target.id==='ov')$('#ov').classList.remove('on')};
-$('#wo').onchange=e=>{S.cfg.wo=e.target.checked?1:0;save();deck=null;draw2()};
-function tab(n){$('#v1').hidden=n!==1;$('#v2').hidden=n!==2;$('#v3').hidden=n!==3;['t1','t2','t3'].forEach((k,i)=>$('#'+k).classList.toggle('p',n===i+1));refresh()}
+$('#wo').onchange=e=>{const v=e.target.checked?1:0;isFm()?FD(fm).wo=v:S.cfg.wo=v;save();deck=null;draw2()};
+function tab(n){sr=null;$('#v1').hidden=n!==1;$('#v2').hidden=n!==2;$('#v3').hidden=n!==3;['t1','t2','t3'].forEach((k,i)=>$('#'+k).classList.toggle('p',n===i+1));refresh()}
 $('#t1').onclick=()=>tab(1);$('#t2').onclick=()=>tab(2);$('#t3').onclick=()=>tab(3);
 /* shelf */
-function openLib(id,to){ban=false;bi=-1;use(id);hist=[];sel.clear();foc=null;deck=null;save();tab(to);if(to===1&&!S.items.length)$('#imp').open=true}
-function drawShelf(){const B=$('#v3');B.innerHTML='';const bar=el('div','bar');
-[['＋ 新建题库',()=>{const l=nl();R.libs.push(l);openLib(l.id,1)},'p'],['全选',()=>{R.libs.forEach(l=>ss.add(l.id));drawShelf()}],['取消',()=>{ss.clear();drawShelf()}],
-['删除所选',()=>{const n=ss.size;if(!n)return;if(!confirm('删除所选 '+n+' 个题库？删除后不可恢复。'))return;
-R.libs=R.libs.filter(l=>!ss.has(l.id));ss.clear();R=norm(R);use(R.cur);hist=[];deck=null;save();drawShelf()}]].forEach(([n,f,c])=>{const b=el('button',c||'');b.textContent=n;b.onclick=f;bar.append(b)});
+function openLib(id,to){fm=null;ban=false;bi=-1;use(id);hist=[];sel.clear();foc=null;deck=null;save();tab(to);if(to===1&&!S.items.length)$('#imp').open=true}
+const libsIn=()=>R.libs.filter(l=>sf?l.f===sf:!l.f);
+function moveWin(){const ids=R.libs.filter(l=>ss.has(l.id)).map(l=>l.id);if(!ids.length){alert('先勾选要移动的题库');return}
+const P=$('#rp');closeP();P.innerHTML='<div class="ph"><b>移动 '+ids.length+' 个题库到…</b><span class="sp"></span><button id="rx" title="关闭">✕</button></div><div class="cb2" id="mv"></div>';
+const M=$('#mv'),add=(n,fid)=>{const b=el('button');b.textContent=n;b.onclick=()=>{R.libs.forEach(l=>{if(ids.includes(l.id)){fid?l.f=fid:delete l.f}});ss.clear();save();closeP();drawShelf()};M.append(b)};
+add('书架（不放文件夹）',null);R.folders.forEach(f=>add('📁 '+f.name,f.id));$('#rx').onclick=closeP;P.hidden=false}
+function delSel(){const L=R.libs.filter(l=>ss.has(l.id)),F=R.folders.filter(f=>ss.has(f.id));if(!L.length&&!F.length)return;
+if(!confirm([L.length?'删除 '+L.length+' 个题库（不可恢复）':'',F.length?'删除 '+F.length+' 个文件夹（其中未删除的题库会放回书架）':''].filter(Boolean).join('；')+'？'))return;
+const fs=new Set(F.map(f=>f.id));R.libs=R.libs.filter(l=>!ss.has(l.id));R.libs.forEach(l=>{if(fs.has(l.f))delete l.f});R.folders=R.folders.filter(f=>!fs.has(f.id));
+if(fs.has(fm))fm=null;ss.clear();R=norm(R);use(R.cur);hist=[];deck=null;save();drawShelf()}
+function drawShelf(){const B=$('#v3');B.innerHTML='';if(sf&&!FD(sf))sf=null;const bar=el('div','bar');
+const btn=(n,f,c)=>{const b=el('button',c||'');b.textContent=n;b.onclick=f;bar.append(b)};
+if(sf)btn('← 书架',()=>{sf=null;ss.clear();drawShelf()});
+btn('＋ 新建题库',()=>{const l=nl();if(sf)l.f=sf;R.libs.push(l);openLib(l.id,1)},'p');
+if(!sf)btn('＋ 新建文件夹',()=>{const n=prompt('文件夹名');if(n===null)return;R.folders.push({id:uid(),name:n.trim()||'未命名文件夹',wo:0});save();drawShelf()});
+btn('全选',()=>{if(!sf)R.folders.forEach(f=>ss.add(f.id));libsIn().forEach(l=>ss.add(l.id));drawShelf()});
+btn('取消',()=>{ss.clear();drawShelf()});btn('移动所选',moveWin);btn('删除所选',delSel);
 B.append(bar);
-R.libs.forEach(l=>{const r=el('div','cr lb'+(l.id===R.cur?' cur':'')),c=el('input');c.type='checkbox';c.checked=ss.has(l.id);c.onchange=()=>{c.checked?ss.add(l.id):ss.delete(l.id)};
+if(sf){const h=el('div','meta');h.textContent='📁 '+FD(sf).name;B.append(h)}
+const chk=id=>{const c=el('input');c.type='checkbox';c.checked=ss.has(id);c.onchange=()=>{c.checked?ss.add(id):ss.delete(id)};return c};
+if(!sf)R.folders.forEach(f=>{const r=el('div','cr lb'),c=chk(f.id),m=el('div','nm'),d=el('span','meta'),Ls=R.libs.filter(l=>l.f===f.id);
+m.textContent='📁 '+f.name;d.textContent=Ls.length+' 个题库 · '+Ls.reduce((n,l)=>n+l.items.filter(x=>x.r==='q').length,0)+' 题';
+const rn=el('button');rn.textContent='改名';rn.onclick=e=>{e.stopPropagation();const n=prompt('文件夹名',f.name);if(n===null)return;f.name=n.trim()||f.name;save();drawShelf()};
+const g=el('button');g.textContent='刷题';g.onclick=e=>{e.stopPropagation();if(!Ls.length){alert('这个文件夹里还没有题库');return}fm=f.id;hist=[];deck=null;sel.clear();tab(2)};
+r.onclick=e=>{if(e.target===c||e.target.tagName==='BUTTON')return;sf=f.id;ss.clear();drawShelf()};r.append(c,m,d,rn,g);B.append(r)});
+libsIn().forEach(l=>{const r=el('div','cr lb'+(l.id===R.cur?' cur':'')),c=chk(l.id);
 const m=el('div','nm');m.textContent=(l.title||'未命名题库')+(l.id===R.cur?'（当前）':'');
 const d=el('span','meta');d.textContent=l.items.filter(x=>x.r==='q').length+' 题 · '+l.items.length+' 行';
 const g=el('button');g.textContent='刷题';g.onclick=e=>{e.stopPropagation();openLib(l.id,2)};
 r.onclick=e=>{if(e.target===c||e.target===g)return;openLib(l.id,1)};r.append(c,m,d,g);B.append(r)});
-const h=el('div','meta');h.textContent='点题库名进入整理；勾选后可批量删除；改名：进入后点顶部题库名';B.append(h)}
+const h=el('div','meta');h.textContent='点名称进入（文件夹→看里面的题库；题库→整理）；勾选后可批量移动/删除；改题库名：进入后点顶部题库名';B.append(h)}
 /* file */
 const FT={types:[{description:'JSON',accept:{'application/json':['.json']}}]};
 const idb=(m,v)=>new Promise((ok,no)=>{const q=indexedDB.open('rc-fh',1);q.onupgradeneeded=()=>q.result.createObjectStore('h');q.onerror=()=>no();
@@ -329,12 +444,12 @@ q.onsuccess=()=>{const s=q.result.transaction('h',m==='get'?'readonly':'readwrit
 const bind=h=>{fh=h;idb('set',h).catch(()=>{})};
 $('#bn').onclick=async()=>{try{const h=await showSaveFilePicker({suggestedName:'背诵卡片.json',...FT});bind(h);await wr()}catch(e){}};
 $('#bo').onclick=async()=>{try{const[h]=await showOpenFilePicker(FT);await h.requestPermission({mode:'readwrite'});
-R=norm(JSON.parse(await(await h.getFile()).text()));use(R.cur);bind(h);hist=[];ban=false;sel.clear();ss.clear();deck=null;save();tbar();tab(1);st('已连接 '+h.name)}catch(e){}};
+R=norm(JSON.parse(await(await h.getFile()).text()));{const im=R.imgs;delete R.imgs;if(im)Object.keys(im).forEach(k=>{IM[k]=im[k];iput(k,im[k])})}use(R.cur);fm=null;sf=null;bind(h);hist=[];ban=false;sel.clear();ss.clear();deck=null;save();tbar();tab(1);st('已连接 '+h.name)}catch(e){}};
 st('仅浏览器暂存（点「新建」选一次文件，之后自动写入）');
 (async()=>{try{const h=await idb('get');if(!h)return;
 if(await h.queryPermission({mode:'readwrite'})==='granted'){fh=h;st('已连接 '+h.name+'（自动保存）')}
 else{const b=$('#br');b.hidden=false;b.textContent='重连 '+h.name;b.onclick=async()=>{try{if(await h.requestPermission({mode:'readwrite'})==='granted'){fh=h;b.hidden=true;st('已连接 '+h.name+'（自动保存）')}}catch(e){}}}}catch(e){}})();
-$('#ttl').onclick=()=>{const t=$('#ttl');if(t.querySelector('input'))return;const i=el('input');i.id='ti';i.value=S.title||'';t.textContent='';t.append(i);i.focus();i.select();
+$('#ttl').onclick=()=>{const t=$('#ttl');if(t.querySelector('input')||fmView())return;const i=el('input');i.id='ti';i.value=S.title||'';t.textContent='';t.append(i);i.focus();i.select();
 let done=0;i.onblur=()=>{if(done)return;done=1;const v=i.value.trim();if(v!==(S.title||'')){snap();S.title=v;save()}paintT()};
 i.onkeydown=e=>{if(e.key==='Enter')i.blur();if(e.key==='Escape'){i.value=S.title||'';i.blur()}}};
 if(!S.items.length)$('#imp').open=true;
