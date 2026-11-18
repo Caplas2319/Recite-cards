@@ -42,6 +42,7 @@ textarea{width:100%;min-height:150px;font:inherit;color:inherit;background:var(-
 [hidden]{display:none!important}
 img.pic,.bx img,.qt img,.ans img,.ol img{max-width:100%;height:auto;vertical-align:middle;border-radius:4px}
 .bx img{max-height:60vh}
+#fsv{position:relative}#fsv::after{content:"";position:absolute;top:1px;right:1px;width:9px;height:9px;border-radius:50%;background:#f59e0b;box-shadow:0 0 0 1.5px var(--card)}#fsv.ok::after{background:#2ea043}
 mark{background:rgba(255,214,0,.55);color:inherit;border-radius:3px}
 #sq,#sc{font:inherit;color:inherit;background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:8px;min-height:42px}#sq{flex:1;min-width:120px}
 .pop{position:fixed;z-index:20;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:8px;box-shadow:0 6px 24px rgba(0,0,0,.25);max-height:70vh;overflow:auto;max-width:calc(100vw - 16px)}
@@ -73,7 +74,7 @@ body.mqm #list{cursor:crosshair;user-select:none}
 </head><body>
 <header>
 <button id="t3">书架</button><button id="t1" class="p">整理</button><button id="t2">刷题</button><span id="ttl"></span><span class="sp"></span>
-<span id="st"></span><button id="br" hidden></button><button id="bn">新建</button><button id="bo">打开</button>
+<span id="st"></span><button id="fsv" title="保存">💾</button>
 </header>
 <main>
 <section id="v1">
@@ -153,7 +154,9 @@ $('#pm').textContent='原图 '+kb(f.size)+'（'+z.ow+'×'+z.oh+'）→ 压缩后
 (z.size<=f.size?$('#iz'):$('#io')).className='p';
 $('#rx').onclick=closeP;$('#iz').onclick=()=>{closeP();putImg(z.url,tg)};$('#io').onclick=()=>{closeP();putImg(orig,tg)};P.hidden=false}
 iload().then(o=>{if(Object.keys(o).length){Object.assign(IM,o);refresh()}}).catch(()=>{});
-async function wr(){try{const w=await fh.createWritable();await w.write(pack());await w.close();st('已保存 '+tnow())}catch(e){st('文件保存失败，仅浏览器暂存')}}
+let pend=null,bad=false;
+const dot=()=>{const b=$('#fsv');b.classList.toggle('ok',!!fh&&!bad);b.title=fh?(bad?'保存失败，点击重试：':'自动保存已开启，点击立即保存：')+fh.name:pend?'点击允许保存到 '+pend.name:'点击选择存档文件'};
+async function wr(){try{const w=await fh.createWritable();await w.write(pack());await w.close();bad=false;st('已保存 '+tnow())}catch(e){bad=true;st('文件保存失败，仅浏览器暂存')}dot()}
 const fmView=()=>isFm()&&!$('#v2').hidden;
 const paintT=()=>{const t=$('#ttl');if(fmView()){t.textContent='📁 '+FD(fm).name;t.title='';return}t.textContent=S.title||'＋ 题库名';t.title='点击修改题库名'};
 const refresh=()=>{paintT();drawBan();!$('#v3').hidden?drawShelf():$('#v1').hidden?draw2():draw()};
@@ -442,13 +445,16 @@ const FT={types:[{description:'JSON',accept:{'application/json':['.json']}}]};
 const idb=(m,v)=>new Promise((ok,no)=>{const q=indexedDB.open('rc-fh',1);q.onupgradeneeded=()=>q.result.createObjectStore('h');q.onerror=()=>no();
 q.onsuccess=()=>{const s=q.result.transaction('h',m==='get'?'readonly':'readwrite').objectStore('h'),r=m==='get'?s.get('fh'):s.put(v,'fh');r.onsuccess=()=>ok(r.result);r.onerror=()=>no()}});
 const bind=h=>{fh=h;idb('set',h).catch(()=>{})};
-$('#bn').onclick=async()=>{try{const h=await showSaveFilePicker({suggestedName:'背诵卡片.json',...FT});bind(h);await wr()}catch(e){}};
-$('#bo').onclick=async()=>{try{const[h]=await showOpenFilePicker(FT);await h.requestPermission({mode:'readwrite'});
-R=norm(JSON.parse(await(await h.getFile()).text()));{const im=R.imgs;delete R.imgs;if(im)Object.keys(im).forEach(k=>{IM[k]=im[k];iput(k,im[k])})}use(R.cur);fm=null;sf=null;bind(h);hist=[];ban=false;sel.clear();ss.clear();deck=null;save();tbar();tab(1);st('已连接 '+h.name)}catch(e){}};
-st('仅浏览器暂存（点「新建」选一次文件，之后自动写入）');
-(async()=>{try{const h=await idb('get');if(!h)return;
-if(await h.queryPermission({mode:'readwrite'})==='granted'){fh=h;st('已连接 '+h.name+'（自动保存）')}
-else{const b=$('#br');b.hidden=false;b.textContent='重连 '+h.name;b.onclick=async()=>{try{if(await h.requestPermission({mode:'readwrite'})==='granted'){fh=h;b.hidden=true;st('已连接 '+h.name+'（自动保存）')}}catch(e){}}}}catch(e){}})();
+function loadArc(d){R=norm(d);{const im=R.imgs;delete R.imgs;if(im)Object.keys(im).forEach(k=>{IM[k]=im[k];iput(k,im[k])})}use(R.cur);fm=null;sf=null;hist=[];ban=false;sel.clear();ss.clear();deck=null;tbar();tab(1)}
+$('#fsv').onclick=async()=>{try{let h=fh||pend;
+if(!h){if(!window.showSaveFilePicker){alert('当前浏览器不支持文件存档，请用电脑版 Edge / Chrome');return}
+h=await showSaveFilePicker({suggestedName:'背诵卡片.json',...FT});
+const f=await h.getFile();if(f.size>0){let d=null;try{d=JSON.parse(await f.text())}catch(e){}
+if(d&&(d.libs||d.items)&&confirm('「'+h.name+'」里已有存档。\n确定：读取它（当前页面的内容会被替换）\n取消：用当前页面的内容覆盖它'))loadArc(d)}}
+else if(await h.requestPermission({mode:'readwrite'})!=='granted'){st('没有获得保存权限');dot();return}
+fh=h;pend=null;bad=false;bind(h);dirty=1;flush()}catch(e){dot()}};
+(async()=>{try{const h=await idb('get');if(h){if(await h.queryPermission({mode:'readwrite'})==='granted'){fh=h;st('自动保存已开启')}else pend=h}}catch(e){}dot()})();
+dot();
 $('#ttl').onclick=()=>{const t=$('#ttl');if(t.querySelector('input')||fmView())return;const i=el('input');i.id='ti';i.value=S.title||'';t.textContent='';t.append(i);i.focus();i.select();
 let done=0;i.onblur=()=>{if(done)return;done=1;const v=i.value.trim();if(v!==(S.title||'')){snap();S.title=v;save()}paintT()};
 i.onkeydown=e=>{if(e.key==='Enter')i.blur();if(e.key==='Escape'){i.value=S.title||'';i.blur()}}};
